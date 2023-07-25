@@ -11,6 +11,7 @@ use yii\web\NotFoundHttpException;
 use app\models\LoginForm;
 use app\models\EmployeeTb;
 use app\models\Admin;
+use yii\web\UploadedFile;
 
 class SiteController extends Controller
 {
@@ -142,9 +143,34 @@ class SiteController extends Controller
         $employee->edited_by = Yii::$app->user->identity->username;
         $employee->edited_on = date('Y-m-d H:i:s');
 
+        $imageFile = UploadedFile::getInstance($employee, 'imageFile');
+        $documentFile = UploadedFile::getInstance($employee, 'documentFile');
+
+        if ($imageFile !== null || $documentFile !== null) {
+            $uploadPath = Yii::getAlias('@app/uploads');
+
+            if ($imageFile !== null) {
+                $employee->image_path = $this->saveUploadedFile($imageFile, $uploadPath . '/images');
+                if ($employee->image_path === null) {
+                    Yii::$app->session->setFlash('error', 'Failed to save image file.');
+                    return $this->refresh();
+                }
+            }
+
+            if ($documentFile !== null) {
+                $employee->document_path = $this->saveUploadedFile($documentFile, $uploadPath . '/documents');
+                if ($employee->document_path === null) {
+                    Yii::$app->session->setFlash('error', 'Failed to save document file.');
+                    return $this->refresh();
+                }
+            }
+        }
+
         if ($employee->save()) {
             Yii::$app->session->setFlash('success', 'Employee updated.');
             return $this->redirect(['employeedetails']);
+        } else {
+            Yii::$app->session->setFlash('error', 'Failed to save employee.');
         }
     }
 
@@ -152,6 +178,20 @@ class SiteController extends Controller
         'employee' => $employee,
     ]);
 }
+
+private function saveUploadedFile($file, $directory)
+{
+    $fileName = Yii::$app->security->generateRandomString() . '.' . $file->extension;
+    $filePath = $directory . '/' . $fileName;
+
+    if ($file->saveAs($filePath)) {
+        return $filePath;
+    }
+
+    return null;
+}
+
+
 
 
     /**
@@ -176,12 +216,39 @@ class SiteController extends Controller
     $employee = new EmployeeTb();
 
     if ($employee->load(Yii::$app->request->post())) {
+        $employee->imageFile = UploadedFile::getInstance($employee, 'imageFile');
+        $employee->documentFile = UploadedFile::getInstance($employee, 'documentFile');
+
         $employee->created_by = Yii::$app->user->identity->username;
         $employee->created_on = date('Y-m-d H:i:s');
 
-        if ($employee->save()) {
-            Yii::$app->session->setFlash('success', 'Employee created.');
-            return $this->redirect(['employeedetails']);
+        if ($employee->validate()) {
+            $imageName = Yii::$app->security->generateRandomString() . '.' . $employee->imageFile->extension;
+            $documentName = Yii::$app->security->generateRandomString() . '.' . $employee->documentFile->extension;
+
+            $uploadPath = Yii::getAlias('@app/uploads');
+
+            $imageDirectory = $uploadPath . '/images';
+            $documentDirectory = $uploadPath . '/documents';
+            if (!is_dir($imageDirectory)) {
+                mkdir($imageDirectory, 0777, true);
+            }
+            if (!is_dir($documentDirectory)) {
+                mkdir($documentDirectory, 0777, true);
+            }
+
+            $employee->image_path = $imageDirectory . '/' . $imageName;
+            $employee->document_path = $documentDirectory . '/' . $documentName;
+
+            if ($employee->save()) {
+                $employee->imageFile->saveAs($employee->image_path);
+                $employee->documentFile->saveAs($employee->document_path);
+
+                Yii::$app->session->setFlash('success', 'Employee created.');
+                return $this->redirect(['employeedetails']);
+            } else {
+                Yii::$app->session->setFlash('error', 'Failed to save employee.');
+            }
         }
     }
 
@@ -189,6 +256,8 @@ class SiteController extends Controller
         'employee' => $employee,
     ]);
 }
+
+
 
     /**
      * Admin Register
